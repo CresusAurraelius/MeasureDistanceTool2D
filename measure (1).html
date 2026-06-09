@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Measure</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
+
+  :root {
+    --bg:       #0f0f0f;
+    --surface:  #1a1a1a;
+    --border:   #2e2e2e;
+    --text:     #e8e8e8;
+    --muted:    #666;
+    --accent:   #00d4aa;
+    --ref:      #f5a623;
+    --meas:     #e84393;
+    --radius:   6px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+  header h1 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  header span {
+    font-size: 0.78rem;
+    color: var(--muted);
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  #workflow {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  #workflow::-webkit-scrollbar { display: none; }
+
+  .step {
+    flex: 1;
+    min-width: 80px;
+    padding: 10px 8px;
+    text-align: center;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--muted);
+    border-right: 1px solid var(--border);
+    transition: color 0.2s, background 0.2s;
+    line-height: 1.4;
+    cursor: default;
+    user-select: none;
+  }
+  .step:last-child { border-right: none; }
+  .step .num { display: block; font-size: 0.6rem; margin-bottom: 2px; opacity: 0.5; }
+  .step.active { color: var(--accent); background: rgba(0,212,170,0.05); }
+  .step.done   { color: var(--muted); opacity: 0.5; }
+
+  main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  #upload-zone {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 40px 24px;
+    cursor: pointer;
+    border: 2px dashed var(--border);
+    margin: 20px;
+    border-radius: var(--radius);
+    transition: border-color 0.2s, background 0.2s;
+  }
+  #upload-zone:hover, #upload-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(0,212,170,0.04);
+  }
+  #upload-zone svg { opacity: 0.3; }
+  #upload-zone p { font-size: 0.85rem; color: var(--muted); text-align: center; line-height: 1.6; }
+  #upload-zone strong { color: var(--text); }
+  #file-input { display: none; }
+
+  #canvas-wrap {
+    display: none;
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background: #080808;
+  }
+  #canvas-wrap.visible { display: flex; align-items: center; justify-content: center; }
+
+  canvas {
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+    cursor: crosshair;
+    touch-action: none;
+  }
+
+  /* Loupe overlay — positioned by JS */
+  #loupe {
+    display: none;
+    position: fixed;
+    width: 140px;
+    height: 140px;
+    border-radius: 50%;
+    border: 2px solid #444;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.7);
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 100;
+    background: #000;
+  }
+  #loupe canvas {
+    display: block;
+    width: 140px;
+    height: 140px;
+    cursor: none;
+  }
+
+  #panel {
+    border-top: 1px solid var(--border);
+    padding: 14px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: var(--surface);
+  }
+
+  .instruction { font-size: 0.82rem; color: var(--text); line-height: 1.5; }
+  .instruction strong { font-weight: 500; }
+  .instruction .tag {
+    display: inline-block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.68rem;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-right: 4px;
+    font-weight: 600;
+  }
+  .tag.ref  { background: rgba(245,166,35,0.2);  color: var(--ref); }
+  .tag.meas { background: rgba(232,67,147,0.2);  color: var(--meas); }
+
+  #ref-input-row {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  #ref-input-row.visible { display: flex; }
+  #ref-input-row label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  input[type="number"], input[type="text"] {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.85rem;
+    padding: 7px 10px;
+    border-radius: var(--radius);
+    width: 90px;
+    transition: border-color 0.2s;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  #unit-input { width: 70px; }
+
+  .btn {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    padding: 8px 14px;
+    border-radius: var(--radius);
+    border: none;
+    cursor: pointer;
+    transition: opacity 0.15s, background 0.15s;
+    white-space: nowrap;
+  }
+  .btn:hover { opacity: 0.85; }
+  .btn:disabled { opacity: 0.3; cursor: default; }
+  .btn-accent { background: var(--accent); color: #000; }
+  .btn-meas   { background: var(--meas);   color: #fff; }
+  .btn-ghost  { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+
+  #result-block {
+    display: none;
+    align-items: baseline;
+    gap: 10px;
+    padding: 12px 16px;
+    background: rgba(232,67,147,0.08);
+    border: 1px solid rgba(232,67,147,0.25);
+    border-radius: var(--radius);
+  }
+  #result-block.visible { display: flex; }
+  #result-value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1.6rem;
+    font-weight: 600;
+    color: var(--meas);
+    letter-spacing: -0.01em;
+  }
+  #result-unit {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.9rem;
+    color: var(--muted);
+  }
+
+  #action-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  @media (min-width: 640px) {
+    #panel { flex-direction: row; align-items: center; flex-wrap: wrap; justify-content: space-between; }
+    .instruction { flex: 1 1 100%; }
+    #ref-input-row { flex: 0 0 auto; }
+    #result-block  { flex: 0 0 auto; }
+    #action-row    { flex: 0 0 auto; margin-left: auto; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Measure</h1>
+  <span>pixel → real-world distance</span>
+</header>
+
+<div id="workflow">
+  <div class="step active" id="s1"><span class="num">01</span>Upload</div>
+  <div class="step" id="s2"><span class="num">02</span>Set ref</div>
+  <div class="step" id="s3"><span class="num">03</span>Known dist</div>
+  <div class="step" id="s4"><span class="num">04</span>Measure</div>
+  <div class="step" id="s5"><span class="num">05</span>Result</div>
+</div>
+
+<main>
+  <div id="upload-zone">
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="17 8 12 3 7 8"/>
+      <line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <p><strong>Tap or click to upload an image</strong><br>or drag one here<br><span style="font-size:0.72rem">PNG, JPG, TIFF, BMP — any size</span></p>
+    <input type="file" id="file-input" accept="image/*">
+  </div>
+
+  <div id="canvas-wrap">
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <div id="panel" style="display:none">
+    <p class="instruction" id="instr">
+      <span class="tag ref">REF</span> Click two points on a feature with a <strong>known distance</strong>.
+    </p>
+
+    <div id="ref-input-row">
+      <label>Known distance:</label>
+      <input type="number" id="dist-input" min="0" step="any" placeholder="e.g. 5">
+      <input type="text"   id="unit-input" placeholder="in" maxlength="12">
+      <button class="btn btn-accent" id="confirm-ref-btn">Confirm</button>
+    </div>
+
+    <div id="result-block">
+      <span id="result-value">—</span>
+      <span id="result-unit"></span>
+    </div>
+
+    <div id="action-row">
+      <button class="btn btn-meas"  id="measure-again-btn" style="display:none">Measure again</button>
+      <button class="btn btn-ghost" id="reset-btn">New image</button>
+    </div>
+  </div>
+</main>
+
+<!-- Loupe overlay -->
+<div id="loupe"><canvas id="loupe-canvas" width="140" height="140"></canvas></div>
+
+<script>
+// ── STATE ──────────────────────────────────────────────────────────────────
+const STATE = {
+  UPLOAD:     'upload',
+  REF_FIRST:  'ref_first',
+  REF_SECOND: 'ref_second',
+  REF_INPUT:  'ref_input',
+  MEAS_FIRST: 'meas_first',
+  MEAS_SECOND:'meas_second',
+  RESULT:     'result',
+};
+
+let state         = STATE.UPLOAD;
+let img           = null;
+let scale         = 1;
+let refPts        = [];    // image coords
+let measPts       = [];    // image coords
+let pixelsPerUnit = null;
+let unitLabel     = '';
+
+// Drag state
+let dragTarget    = null;  // { arr: refPts|measPts, idx: 0|1 } or null
+let isDragging    = false;
+const HIT_RADIUS  = 14;    // canvas pixels — grab zone around a point
+
+// ── DOM ────────────────────────────────────────────────────────────────────
+const uploadZone  = document.getElementById('upload-zone');
+const fileInput   = document.getElementById('file-input');
+const canvasWrap  = document.getElementById('canvas-wrap');
+const canvas      = document.getElementById('canvas');
+const ctx         = canvas.getContext('2d');
+const panel       = document.getElementById('panel');
+const instr       = document.getElementById('instr');
+const refInputRow = document.getElementById('ref-input-row');
+const distInput   = document.getElementById('dist-input');
+const unitInput   = document.getElementById('unit-input');
+const confirmBtn  = document.getElementById('confirm-ref-btn');
+const resultBlock = document.getElementById('result-block');
+const resultValue = document.getElementById('result-value');
+const resultUnit  = document.getElementById('result-unit');
+const measureAgain= document.getElementById('measure-again-btn');
+const resetBtn    = document.getElementById('reset-btn');
+const loupe       = document.getElementById('loupe');
+const loupeCanvas = document.getElementById('loupe-canvas');
+const lctx        = loupeCanvas.getContext('2d');
+const steps       = [null,
+  document.getElementById('s1'),
+  document.getElementById('s2'),
+  document.getElementById('s3'),
+  document.getElementById('s4'),
+  document.getElementById('s5'),
+];
+
+// ── UPLOAD ─────────────────────────────────────────────────────────────────
+uploadZone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => loadFile(e.target.files[0]));
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('image/')) loadFile(f);
+});
+
+function loadFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const i = new Image();
+    i.onload = () => { img = i; initCanvas(); setState(STATE.REF_FIRST); };
+    i.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+// ── CANVAS SETUP ───────────────────────────────────────────────────────────
+function initCanvas() {
+  uploadZone.style.display = 'none';
+  canvasWrap.classList.add('visible');
+  panel.style.display = 'flex';
+  resizeCanvas();
+}
+
+function resizeCanvas() {
+  if (!img) return;
+  const maxW = canvasWrap.clientWidth;
+  const maxH = canvasWrap.clientHeight;
+  scale = Math.min(maxW / img.width, maxH / img.height, 1);
+  canvas.width  = Math.round(img.width  * scale);
+  canvas.height = Math.round(img.height * scale);
+  redraw();
+}
+window.addEventListener('resize', resizeCanvas);
+
+// ── COORD HELPERS ──────────────────────────────────────────────────────────
+function imgToCanvas(pt)   { return { x: pt.x * scale, y: pt.y * scale }; }
+function canvasToImg(pt)   { return { x: pt.x / scale, y: pt.y / scale }; }
+
+// Raw canvas coords from a pointer event (accounting for CSS scaling of canvas element)
+function getCanvasCoords(e) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - rect.left) * (canvas.width  / rect.width),
+    y: (e.clientY - rect.top)  * (canvas.height / rect.height),
+  };
+}
+function getImageCoords(e) { return canvasToImg(getCanvasCoords(e)); }
+
+// ── HIT TEST — find existing point near canvas coords ─────────────────────
+function hitTest(cx, cy) {
+  const pools = [
+    { arr: refPts,  key: 'ref'  },
+    { arr: measPts, key: 'meas' },
+  ];
+  for (const { arr, key } of pools) {
+    for (let i = 0; i < arr.length; i++) {
+      const c = imgToCanvas(arr[i]);
+      const dx = cx - c.x, dy = cy - c.y;
+      if (Math.sqrt(dx*dx + dy*dy) <= HIT_RADIUS) {
+        return { arr, idx: i, key };
+      }
+    }
+  }
+  return null;
+}
+
+// ── DRAWING ────────────────────────────────────────────────────────────────
+function drawCrosshair(cx, cy, color, label, highlight) {
+  const r = 6, arm = 12;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth   = highlight ? 2.5 : 1.5;
+  ctx.setLineDash([]);
+  if (highlight) {
+    ctx.shadowColor = color;
+    ctx.shadowBlur  = 8;
+  }
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx - arm, cy); ctx.lineTo(cx - r, cy);
+  ctx.moveTo(cx + r,   cy); ctx.lineTo(cx + arm, cy);
+  ctx.moveTo(cx, cy - arm); ctx.lineTo(cx, cy - r);
+  ctx.moveTo(cx, cy + r);   ctx.lineTo(cx, cy + arm);
+  ctx.stroke();
+  if (label) {
+    ctx.font = 'bold 10px "IBM Plex Mono", monospace';
+    ctx.fillStyle = color; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    ctx.fillText(label, cx + 9, cy - 3);
+  }
+  ctx.restore();
+}
+
+function drawLine(p1, p2, color) {
+  const c1 = imgToCanvas(p1), c2 = imgToCanvas(p2);
+  ctx.save();
+  ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]);
+  ctx.beginPath(); ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y); ctx.stroke();
+  ctx.restore();
+}
+
+function redraw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!img) return;
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  const rc = '#f5a623', mc = '#e84393';
+  refPts.forEach((pt, i) => {
+    const c = imgToCanvas(pt);
+    const hi = isDragging && dragTarget && dragTarget.arr === refPts && dragTarget.idx === i;
+    drawCrosshair(c.x, c.y, rc, `R${i+1}`, hi);
+  });
+  if (refPts.length === 2) drawLine(refPts[0], refPts[1], rc);
+
+  measPts.forEach((pt, i) => {
+    const c = imgToCanvas(pt);
+    const hi = isDragging && dragTarget && dragTarget.arr === measPts && dragTarget.idx === i;
+    drawCrosshair(c.x, c.y, mc, `M${i+1}`, hi);
+  });
+  if (measPts.length === 2) drawLine(measPts[0], measPts[1], mc);
+}
+
+// ── LOUPE ──────────────────────────────────────────────────────────────────
+const LOUPE_SIZE   = 140;   // px diameter
+const LOUPE_ZOOM   = 4;
+const LOUPE_OFFSET = 20;    // gap from finger/cursor
+
+function showLoupe(clientX, clientY, imgX, imgY) {
+  loupe.style.display = 'block';
+
+  // Position: prefer upper-right; flip if near edges
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const lw = LOUPE_SIZE, lh = LOUPE_SIZE;
+  let lx = clientX + LOUPE_OFFSET;
+  let ly = clientY - lh - LOUPE_OFFSET;
+  if (lx + lw > vw - 8) lx = clientX - lw - LOUPE_OFFSET;
+  if (ly < 8)            ly = clientY + LOUPE_OFFSET;
+  loupe.style.left = lx + 'px';
+  loupe.style.top  = ly + 'px';
+
+  // Draw zoomed patch centered on imgX, imgY
+  const half  = LOUPE_SIZE / 2;
+  const srcW  = LOUPE_SIZE / LOUPE_ZOOM;   // source region width in image pixels
+  const srcH  = LOUPE_SIZE / LOUPE_ZOOM;
+  const sx    = imgX - srcW / 2;
+  const sy    = imgY - srcH / 2;
+
+  lctx.save();
+  lctx.clearRect(0, 0, LOUPE_SIZE, LOUPE_SIZE);
+
+  // Clip to circle
+  lctx.beginPath();
+  lctx.arc(half, half, half, 0, Math.PI * 2);
+  lctx.clip();
+
+  // Draw image patch
+  lctx.imageSmoothingEnabled = false;
+  lctx.drawImage(img,
+    sx, sy, srcW, srcH,
+    0,  0,  LOUPE_SIZE, LOUPE_SIZE
+  );
+
+  // Draw all existing points into the loupe
+  function loupePoint(pt, color, label) {
+    const px = (pt.x - sx) * LOUPE_ZOOM;
+    const py = (pt.y - sy) * LOUPE_ZOOM;
+    const r = 5, arm = 10;
+    lctx.strokeStyle = color; lctx.lineWidth = 1.5; lctx.setLineDash([]);
+    lctx.beginPath(); lctx.arc(px, py, r, 0, Math.PI*2); lctx.stroke();
+    lctx.beginPath();
+    lctx.moveTo(px - arm, py); lctx.lineTo(px - r, py);
+    lctx.moveTo(px + r,   py); lctx.lineTo(px + arm, py);
+    lctx.moveTo(px, py - arm); lctx.lineTo(px, py - r);
+    lctx.moveTo(px, py + r);   lctx.lineTo(px, py + arm);
+    lctx.stroke();
+    if (label) {
+      lctx.font = 'bold 9px monospace';
+      lctx.fillStyle = color; lctx.textAlign = 'left'; lctx.textBaseline = 'bottom';
+      lctx.fillText(label, px + 7, py - 2);
+    }
+  }
+  refPts.forEach((pt, i)  => loupePoint(pt, '#f5a623', `R${i+1}`));
+  measPts.forEach((pt, i) => loupePoint(pt, '#e84393', `M${i+1}`));
+
+  // Precise center crosshair (where the point will land)
+  lctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  lctx.lineWidth   = 1;
+  lctx.setLineDash([2, 2]);
+  lctx.beginPath();
+  lctx.moveTo(half, 0); lctx.lineTo(half, LOUPE_SIZE);
+  lctx.moveTo(0, half); lctx.lineTo(LOUPE_SIZE, half);
+  lctx.stroke();
+
+  // Center dot
+  lctx.setLineDash([]);
+  lctx.fillStyle = 'rgba(255,255,255,0.95)';
+  lctx.beginPath(); lctx.arc(half, half, 2, 0, Math.PI*2); lctx.fill();
+
+  lctx.restore();
+}
+
+function hideLoupe() {
+  loupe.style.display = 'none';
+}
+
+// ── POINTER EVENTS ─────────────────────────────────────────────────────────
+canvas.addEventListener('pointerdown', onPointerDown);
+canvas.addEventListener('pointermove', onPointerMove);
+canvas.addEventListener('pointerup',   onPointerUp);
+canvas.addEventListener('pointercancel', onPointerUp);
+canvas.addEventListener('pointerleave', () => { if (!isDragging) hideLoupe(); });
+
+function onPointerDown(e) {
+  e.preventDefault();
+  canvas.setPointerCapture(e.pointerId);
+
+  const cc  = getCanvasCoords(e);
+  const hit = hitTest(cc.x, cc.y);
+
+  // If we hit an existing point and are in a state that allows dragging, start drag
+  const draggable =
+    state === STATE.REF_SECOND ||
+    state === STATE.REF_INPUT  ||
+    state === STATE.MEAS_SECOND||
+    state === STATE.RESULT;
+
+  if (hit && draggable) {
+    dragTarget = hit;
+    isDragging = true;
+    showLoupe(e.clientX, e.clientY, hit.arr[hit.idx].x, hit.arr[hit.idx].y);
+    redraw();
+    return;
+  }
+
+  // Otherwise — place a new point
+  const pt = getImageCoords(e);
+  showLoupe(e.clientX, e.clientY, pt.x, pt.y);
+
+  if (state === STATE.REF_FIRST) {
+    refPts = [pt]; redraw(); setState(STATE.REF_SECOND);
+  } else if (state === STATE.REF_SECOND) {
+    refPts = [refPts[0], pt]; redraw(); setState(STATE.REF_INPUT);
+  } else if (state === STATE.MEAS_FIRST) {
+    measPts = [pt]; redraw(); setState(STATE.MEAS_SECOND);
+  } else if (state === STATE.MEAS_SECOND) {
+    measPts = [measPts[0], pt]; redraw(); computeResult(); setState(STATE.RESULT);
+  }
+}
+
+function onPointerMove(e) {
+  e.preventDefault();
+  const cc = getCanvasCoords(e);
+  const ip = canvasToImg(cc);
+
+  if (isDragging && dragTarget) {
+    // Move the dragged point
+    dragTarget.arr[dragTarget.idx] = ip;
+    redraw();
+    // Live-update result if both measure points are set
+    if (measPts.length === 2 && pixelsPerUnit) computeResult();
+    showLoupe(e.clientX, e.clientY, ip.x, ip.y);
+    return;
+  }
+
+  // Show loupe while actively placing (button held or touch)
+  if (e.buttons > 0 || e.pointerType === 'touch') {
+    showLoupe(e.clientX, e.clientY, ip.x, ip.y);
+  } else {
+    // Hover: update cursor based on whether we're over a draggable point
+    const canDrag = state !== STATE.UPLOAD && state !== STATE.REF_FIRST && state !== STATE.MEAS_FIRST;
+    if (canDrag && hitTest(cc.x, cc.y)) {
+      canvas.style.cursor = 'grab';
+    } else {
+      canvas.style.cursor = (state === STATE.REF_INPUT || state === STATE.RESULT) ? 'default' : 'crosshair';
+    }
+    hideLoupe();
+  }
+}
+
+function onPointerUp(e) {
+  e.preventDefault();
+  isDragging = false;
+  dragTarget = null;
+  hideLoupe();
+  redraw();
+}
+
+// ── STATE MACHINE ──────────────────────────────────────────────────────────
+function setState(s) { state = s; updateUI(); }
+
+function updateUI() {
+  refInputRow.classList.remove('visible');
+  resultBlock.classList.remove('visible');
+  measureAgain.style.display = 'none';
+  setStep(1);
+
+  if (state === STATE.REF_FIRST) {
+    instr.innerHTML = `<span class="tag ref">REF</span> Click two points on a feature with a <strong>known distance</strong>.`;
+    canvas.style.cursor = 'crosshair'; setStep(2);
+  } else if (state === STATE.REF_SECOND) {
+    instr.innerHTML = `<span class="tag ref">REF</span> Click the <strong>second reference point</strong>. Drag either point to adjust.`;
+    canvas.style.cursor = 'crosshair'; setStep(2);
+  } else if (state === STATE.REF_INPUT) {
+    instr.innerHTML = `<span class="tag ref">REF</span> Enter the <strong>known distance</strong>. Drag points to adjust.`;
+    refInputRow.classList.add('visible');
+    distInput.focus();
+    canvas.style.cursor = 'default'; setStep(3);
+  } else if (state === STATE.MEAS_FIRST) {
+    instr.innerHTML = `<span class="tag meas">MEAS</span> Click the <strong>first point</strong> of the unknown distance.`;
+    canvas.style.cursor = 'crosshair'; setStep(4);
+  } else if (state === STATE.MEAS_SECOND) {
+    instr.innerHTML = `<span class="tag meas">MEAS</span> Click the <strong>second point</strong>. Drag any point to adjust.`;
+    canvas.style.cursor = 'crosshair'; setStep(4);
+  } else if (state === STATE.RESULT) {
+    instr.innerHTML = `<span class="tag meas">MEAS</span> Measured distance: <span style="color:var(--muted);font-size:0.75rem">(drag any point to refine)</span>`;
+    resultBlock.classList.add('visible');
+    measureAgain.style.display = 'inline-block';
+    canvas.style.cursor = 'default'; setStep(5);
+  }
+}
+
+function setStep(active) {
+  for (let i = 1; i <= 5; i++) {
+    steps[i].classList.remove('active', 'done');
+    if (i < active) steps[i].classList.add('done');
+    if (i === active) steps[i].classList.add('active');
+  }
+}
+
+// ── CONFIRM REF ────────────────────────────────────────────────────────────
+confirmBtn.addEventListener('click', confirmRef);
+distInput.addEventListener('keydown', e => { if (e.key === 'Enter') confirmRef(); });
+
+function confirmRef() {
+  const d = parseFloat(distInput.value);
+  if (!d || d <= 0) { distInput.focus(); distInput.select(); return; }
+  unitLabel = unitInput.value.trim() || 'units';
+  const dx = refPts[1].x - refPts[0].x, dy = refPts[1].y - refPts[0].y;
+  pixelsPerUnit = Math.sqrt(dx*dx + dy*dy) / d;
+  setState(STATE.MEAS_FIRST);
+}
+
+// ── COMPUTE ────────────────────────────────────────────────────────────────
+function computeResult() {
+  if (measPts.length < 2 || !pixelsPerUnit) return;
+  const dx = measPts[1].x - measPts[0].x, dy = measPts[1].y - measPts[0].y;
+  const dist = Math.sqrt(dx*dx + dy*dy) / pixelsPerUnit;
+  let display;
+  if      (dist >= 100) display = dist.toFixed(1);
+  else if (dist >= 10)  display = dist.toFixed(2);
+  else if (dist >= 1)   display = dist.toFixed(3);
+  else                  display = dist.toFixed(4);
+  resultValue.textContent = display;
+  resultUnit.textContent  = unitLabel;
+}
+
+// ── MEASURE AGAIN ──────────────────────────────────────────────────────────
+measureAgain.addEventListener('click', () => {
+  measPts = []; redraw(); setState(STATE.MEAS_FIRST);
+});
+
+// ── RESET ──────────────────────────────────────────────────────────────────
+resetBtn.addEventListener('click', () => {
+  img = null; refPts = []; measPts = []; pixelsPerUnit = null; unitLabel = '';
+  distInput.value = ''; unitInput.value = '';
+  uploadZone.style.display = '';
+  canvasWrap.classList.remove('visible');
+  panel.style.display = 'none';
+  fileInput.value = '';
+  setState(STATE.UPLOAD);
+});
+</script>
+</body>
+</html>
